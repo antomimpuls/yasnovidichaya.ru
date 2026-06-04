@@ -95,6 +95,47 @@ const SITE_STATS_TRACKER_CONFIG = {
         document.addEventListener(evt, function(){ interactionCount++; }, {passive: true, capture: true});
     });
 
+    // Сигналы аутентичности последнего действия пользователя (антибот).
+    let lastPointerType = null;
+    let lastTrusted = null;
+    let lastUserEventTs = 0;
+    let honeypotTripped = false;
+    ['pointerdown', 'mousedown', 'touchstart', 'click'].forEach(function(evt){
+        document.addEventListener(evt, function(e){
+            try {
+                lastTrusted = (e && e.isTrusted === true);
+                if (e && typeof e.pointerType === 'string' && e.pointerType) {
+                    lastPointerType = e.pointerType;
+                } else if (e && e.type === 'touchstart') {
+                    lastPointerType = 'touch';
+                } else if (e && (e.type === 'mousedown' || e.type === 'click') && !lastPointerType) {
+                    lastPointerType = 'mouse';
+                }
+                lastUserEventTs = Date.now();
+            } catch (err) {}
+        }, {passive: true, capture: true});
+    });
+
+    // Honeypot-приманка: невидимая ссылка-кнопка вне экрана. Реальный человек
+    // её не видит и не кликнет. Клик по ней = на странице бот, кликающий
+    // элементы вслепую (типичное скликивание по рекламе).
+    (function installHoneypot(){
+        try {
+            const hp = document.createElement('a');
+            hp.href = 'https://wa.me/79000000000';
+            hp.textContent = 'WhatsApp';
+            hp.setAttribute('aria-hidden', 'true');
+            hp.tabIndex = -1;
+            hp.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;overflow:hidden;';
+            hp.addEventListener('click', function(e){
+                try { e.preventDefault(); e.stopPropagation(); } catch (err) {}
+                honeypotTripped = true;
+            });
+            const mount = function(){ try { (document.body || document.documentElement).appendChild(hp); } catch (err) {} };
+            if (document.body) { mount(); } else { document.addEventListener('DOMContentLoaded', mount); }
+        } catch (err) {}
+    })();
+
     function getStorageValue(key){
         try {
             const raw = localStorage.getItem(key);
@@ -171,6 +212,30 @@ const SITE_STATS_TRACKER_CONFIG = {
         }).catch(function(){});
     }
 
+    // Надёжный досыл сигналов, которые отправляются в момент ухода со страницы
+    // (outbound/returned). fetchLater() (Chrome/Android 2024+) гарантирует
+    // доставку даже когда вкладка уходит в фон при переходе в приложение
+    // мессенджера — главное лекарство для мобильного трафика. Fallback —
+    // обычный fetch keepalive.
+    function sendReliable(body){
+        try {
+            if (typeof fetchLater === 'function') {
+                fetchLater(`${SITE_STATS_TRACKER_CONFIG.projectUrl}/rest/v1/rpc/record_site_click`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SITE_STATS_TRACKER_CONFIG.anonKey,
+                        'Authorization': `Bearer ${SITE_STATS_TRACKER_CONFIG.anonKey}`
+                    },
+                    body: JSON.stringify(body),
+                    activateAfter: 0
+                });
+                return;
+            }
+        } catch (err) {}
+        callRpc(body);
+    }
+
     function buildBody(snapshot, metadata){
         return {
             p_site_domain: SITE_STATS_TRACKER_CONFIG.domain,
@@ -199,6 +264,10 @@ const SITE_STATS_TRACKER_CONFIG = {
             scroll_depth: scrollDepthMax,
             interactions: interactionCount,
             had_focus_on_click: typeof document.hasFocus === 'function' ? document.hasFocus() : null,
+            is_trusted: (Date.now() - lastUserEventTs <= 2000) ? lastTrusted : null,
+            pointer_type: (Date.now() - lastUserEventTs <= 2000) ? lastPointerType : null,
+            is_webdriver: (typeof navigator !== 'undefined' && navigator.webdriver === true),
+            honeypot_tripped: honeypotTripped,
             viewport: {
                 w: window.innerWidth || 0,
                 h: window.innerHeight || 0
@@ -239,7 +308,7 @@ const SITE_STATS_TRACKER_CONFIG = {
                 return p.eventToken === snapshot.eventToken ? snapshot : p;
             });
             savePendingClicks(list);
-            try { callRpc(buildBody(snapshot, updatedMeta)); } catch (err) {}
+            try { sendReliable(buildBody(snapshot, updatedMeta)); } catch (err) {}
         }
         document.addEventListener('visibilitychange', onVisibilityChange);
         window.addEventListener('pagehide', onVisibilityChange);
@@ -265,7 +334,7 @@ const SITE_STATS_TRACKER_CONFIG = {
                 away_ms: ageMs
             });
             snapshot.metadata = updatedMeta;
-            try { callRpc(buildBody(snapshot, updatedMeta)); } catch (err) {}
+            try { sendReliable(buildBody(snapshot, updatedMeta)); } catch (err) {}
         });
         savePendingClicks(remaining);
     }
