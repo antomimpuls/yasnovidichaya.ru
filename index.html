@@ -915,9 +915,9 @@ p {
 
 <div class="sticky-messengers" id="stickyMessengers">
 
-<a class="btn btn-wa" data-wa="true" href="https://wa.me/79592543085" rel="noopener" target="_blank">Написать в WhatsApp</a>
+<a class="btn btn-wa" data-wa="true" href="#" data-msg-url="https://wa.me/79592543085" rel="noopener" target="_blank">Написать в WhatsApp</a>
 
-<a class="btn btn-tg" data-telegram="true" href="https://t.me/anna_more_magic" rel="noopener" target="_blank">Открыть Telegram</a>
+<a class="btn btn-tg" data-telegram="true" href="#" data-msg-url="https://t.me/anna_more_magic" rel="noopener" target="_blank">Открыть Telegram</a>
 
 </div>
 
@@ -949,9 +949,9 @@ p {
 
 <div class="hero-cta">
 
-<a class="btn btn-wa" data-wa="true" href="https://wa.me/79592543085" rel="noopener" target="_blank">Написать в WhatsApp</a>
+<a class="btn btn-wa" data-wa="true" href="#" data-msg-url="https://wa.me/79592543085" rel="noopener" target="_blank">Написать в WhatsApp</a>
 
-<a class="btn btn-tg" data-telegram="true" href="https://t.me/anna_more_magic" rel="noopener" target="_blank">Открыть Telegram</a>
+<a class="btn btn-tg" data-telegram="true" href="#" data-msg-url="https://t.me/anna_more_magic" rel="noopener" target="_blank">Открыть Telegram</a>
 
 </div>
 
@@ -2680,6 +2680,26 @@ ym(SITE_SETTINGS.yandexMetrikaId,"init",{clickmap:true,trackLinks:true,accurateT
 
 <script>if(SITE_SETTINGS.yandexMetrikaId){const ymImg=document.getElementById('ymImg');if(ymImg){ymImg.src=`https://mc.yandex.ru/watch/${SITE_SETTINGS.yandexMetrikaId}`}}</script>
 
+
+<script>
+/* ADSPOWER_NOHREF_GUARD: цель Метрики type=messenger срабатывает на клик по ссылке
+   wa.me/t.me. Убираем href у реального посетителя -> переход через window.open
+   (Метрика мессенджер-клик не видит). Трафик-бот восстанавливает href сам перед
+   кликом, тогда не мешаем (Метрика фиксирует ботовый переход). */
+(function(){
+  document.addEventListener('click', function(e){
+    var a = e.target && e.target.closest ? e.target.closest('a[data-msg-url]') : null;
+    if(!a) return;
+    var h = a.getAttribute('href') || '';
+    if(/(?:wa\.me|t\.me)\//.test(h)) return; /* href восстановлен (бот) — не мешаем */
+    e.preventDefault();
+    var u = a.getAttribute('data-msg-url');
+    if(!u) return;
+    try { var w = window.open(u, '_blank', 'noopener'); if(!w) location.href = u; }
+    catch(err) { location.href = u; }
+  }, false);
+})();
+</script>
 </body>
 
 </html>
